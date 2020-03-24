@@ -426,22 +426,39 @@ class Pulsar(object):
             ]
             full_jump_nums = [
                 dict["jump"] if "jump" in dict.keys() else np.nan
-                for dict in self.all_toas.table["flags"]
-            ]
-            for num in range(1, int(np.nanmax(full_jump_nums) + 1)):
-                num = int(num)
-                if num not in sel_jump_nums:
-                    getattr(self.prefit_model, "JUMP" + str(num)).frozen = True
-                    continue
-                jump_select = [num == jump_num for jump_num in full_jump_nums]
-                overlap = [a and b for a, b in zip(jump_select, selected)]
-                # remove the jump flags for that num
-                for dict in self.all_toas.table["flags"]:
-                    if "jump" in dict.keys() and dict["jump"] == num:
-                        del dict["jump"]
-                # re-add the jump using overlap as 'selected'
-                for dict in self.all_toas.table["flags"][overlap]:
-                    dict["jump"] = num
+                 for dict in self.all_toas.table["flags"]
+             ]
+-            for num in range(1, int(np.nanmax(full_jump_nums) + 1)):
+-                num = int(num)
+-                if num not in sel_jump_nums:
+-                    getattr(self.prefit_model, "JUMP" + str(num)).frozen = True
+-                    continue
+-                jump_select = [num == jump_num for jump_num in full_jump_nums]
+-                overlap = [a and b for a, b in zip(jump_select, selected)]
+-                # remove the jump flags for that num
+-                for dict in self.all_toas.table["flags"]:
+-                    if "jump" in dict.keys() and dict["jump"] == num:
+-                        del dict["jump"]
+-                # re-add the jump using overlap as 'selected'
+-                for dict in self.all_toas.table["flags"][overlap]:
+-                    dict["jump"] = num
++            if not np.isnan(np.nanmax(full_jump_nums)):
++                for num in range(1, int(np.nanmax(full_jump_nums) + 1)):
++                    num = int(num)
++                    if num not in sel_jump_nums:
++                        getattr(self.prefit_model, "JUMP" + str(num)).frozen = True
++                        continue
++                    jump_select = [num == jump_num for jump_num in full_jump_nums]
++                    overlap = [a and b for a, b in zip(jump_select, selected)]
++                    # remove the jump flags for that num
++                    for dict in self.all_toas.table["flags"]:
++                        if "jump" in dict.keys() and dict["jump"] == num:
++                            del dict["jump"]
++                    # re-add the jump using overlap as 'selected'
++                    for dict in self.all_toas.table["flags"][overlap]:
++                        dict["jump"] = num
+ 
+
 
         if self.fitted:
             self.prefit_model = self.postfit_model
