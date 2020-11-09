@@ -1,5 +1,9 @@
+.. _`Developing PINT`:
+
 How to Set Up Your Environment For PINT Development
 ===================================================
+
+See also :ref:`Contributing`
 
 Working on PINT code requires a few more tools than simply running PINT, and
 there are a few settings that can make it much easier. Some of what follows
@@ -38,49 +42,50 @@ graphically in the web interface, but in many cases you will want to do
 something direct on your local machine. Having the right tools available and
 configured should make this easy.
 
+
 In your development virtualenv, install the development requirements::
 
-   $ pip install -Ur requirements_dev.txt
+   pip install -Ur requirements_dev.txt
 
 Set up a few tools to make the git repository behave better. ``pre-commit``
 runs various things, like check the text formatting, making sure you didn't
 accidentally include some huge binary file, and so on, when you go to commit
 something to git::
 
-   $ pre-commit install
+   pre-commit install
 
 Configure git so ``git blame`` ignores large-scale reformatting commits in
 favour of changes to the actual contents::
 
-   $ git config blame.ignoreRevsFile .git-blame-ignore-revs
+   git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 How To Build and Test From the Command Line
 ===========================================
 
 To run the whole test suite::
 
-   $ pytest
+   pytest
 
 To run tests on just one file::
 
-   $ pytest tests/test_my_new_thing.py
+   pytest tests/test_my_new_thing.py
 
 To run just one test::
 
-   $ pytest tests/test_my_new_thing.py::test_specific
+   pytest tests/test_my_new_thing.py::test_specific
 
 To test everything but start with tests that failed last time, stopping when
 something goes wrong (this is great when you're trying to fix that one bug; if
 you haven't you'll get new error messages, if you have, it'll continue on to
 run all the tests)::
 
-   $ pytest --ff -x
+   pytest --ff -x
 
 To drop into the python debugger at the point where a test fails so you can
 investigate_, for example go up and down the call history and inspect local
 variables::
 
-   $ pytest --pdb -x
+   pytest --pdb -x
 
 The `python debugger`_ also allows you to step through your code, put in
 breakpoints, and many other things. It can save a ton of time compared to
@@ -91,29 +96,29 @@ To run the whole test suite in fresh installs on several python versions, and
 also rebuilt the notebooks and documentation as well as compute combined code
 coverage for all the versions::
 
-   $ tox
+   tox
 
 To run tests on multiple python versions and build
 the documentation in parallel::
 
-   $ tox --parallel=auto
+   tox --parallel=auto
 
 If this finds a problem in just one python environment that doesn't appear in
 your development environment, you can run just the problem environment::
 
-   $ tox -e py27
+   tox -e py27
 
 You can also run other things in the environments ``tox`` uses, including
 interactive python sessions (though these will include only PINT's installation
 requirements, so no IPython)::
 
-   $ tox -e py27 -- pytest --ff --pdb -x
-   $ tox -e py27 -- pytest tests/test_my_new_thing.py
-   $ tox -e py27 -- python
+   tox -e py27 -- pytest --ff --pdb -x
+   tox -e py27 -- pytest tests/test_my_new_thing.py
+   tox -e py27 -- python
 
 To automatically run black on all of PINT's code::
 
-   $ black src/
+   black src/
 
 Under ``examples/`` there are a few Jupyter notebooks. These actually get
 incorporated into the online documentation (you may have seen them). To avoid
@@ -130,16 +135,16 @@ Coping with ``git``
 
 To import any changes that have been made to the PINT distribution::
 
-   $ git fetch --all
-   $ git checkout master
-   $ git merge upstream/master
-   $ git push
+   git fetch --all
+   git checkout master
+   git merge upstream/master
+   git push
 
 To switch between branches::
 
-   $ git checkout a-branch
-   $ git checkout another-branch
-   $ git checkout master
+   git checkout a-branch
+   git checkout another-branch
+   git checkout master
 
 These are very fast but they do change all the source code files to reflect
 what they look like in the branch you're switching to. If you have them open in
@@ -148,20 +153,20 @@ under it.
 
 To start a new branch for a thing::
 
-   $ git checkout master
-   $ git checkout -b a-thing
+   git checkout master
+   git checkout -b a-thing
 
 To send your changes to the current branch to your fork of the PINT
 repository::
 
-   $ git push
+   git push
 
 If this is the first time you've done this with a new branch ``git`` will
 refuse because it doesn't exist in your fork on GitHub. It will print out a
 command to create the branch on your GitHub. Just paste that. It will look
 like::
 
-   $ git push --set-upstream origin a-thing
+   git push --set-upstream origin a-thing
 
 If you now go to GitHub and poke around a bit, say on the Issues or Pull
 Requests page, GitHub will have a button that says essentially "you just pushed
@@ -177,8 +182,8 @@ in a way that conflicts with it (itHub will tell you on the pull request page),
 you want to rebase_ your pull request. There are more details you can look up,
 but in short, update master as above, then::
 
-   $ git checkout a-thing
-   $ git rebase master
+   git checkout a-thing
+   git rebase master
 
 This will attempt to take your branch, ``a-thing``, look at how it differs from
 where you created it from, and then apply those same changes to the new
@@ -191,19 +196,19 @@ mess up comments that people have attached to particular lines of your pull
 request, so pick a quiet moment to do this. You will need to tell ``git`` that
 yes, you really mean to change the public history::
 
-   $ git push -f
+   git push -f
 
 If you are digging through the source code and see something strange in a file,
 and if you think "who thought *that* was a good idea?", you can ask ``git`` who
 last modified each line in a file, and when::
 
-   $ git blame src/pint/utils.py
+   git blame src/pint/utils.py
 
 To track and checkout another user's branch (pull request)::
 
-   $ git remote add other-user-username https://github.com/other-user-username/pint.git
-   $ git fetch other-user-username
-   $ git checkout --track -b branch-name other-user-username/branch-name
+   git remote add other-user-username https://github.com/other-user-username/pint.git
+   git fetch other-user-username
+   git checkout --track -b branch-name other-user-username/branch-name
 
 If you make a mistake and get ``git`` into a strange or awkward state. Don't
 panic, and try Googling the specific error message. ``git`` is quite thorough
@@ -212,6 +217,47 @@ especially if you have been pushing your changes to GitHub. If it helps, there
 is `Dang it, git!`_ (there is a ruder version which may feel more appropriate
 in the moment), or the `git choose-your-own-adventure` (which is extremely
 useful as well as amusing).
+
+Tagging and Releasing versions
+------------------------------
+
+This portion is only for developers with permission to modify the master NANOGrav repository!
+
+Tagging
+'''''''
+
+The current version string is available as ``pint.__version__``
+
+PINT uses MAJOR.MINOR.PATCH versioning inspired by, but not strictly following, Semantic Versioning. 
+PINT uses versioneer.py to make sure that ``pint.__version__`` is available in the code for version checking. 
+This constructs the version string from git using tags and commit hashes.
+
+To create a new tagged version of PINT (assuming you are going from 0.5.0 to 0.5.1):
+
+You can see what tags already exist like this::
+
+   git tag --list
+
+First make sure you are on the PINT master branch in the ``nanograv/PINT`` repository and your working copy is clean (``git status``), then::
+
+   git push origin
+
+Now wait 15 minutes and check that travis-ci says that the build is OK, before tagging! If needed, push any bug fixes.
+When tagging, always use "annotated tags" by specifying ``-a``::
+
+   git tag -a 0.5.1 -m "PINT version 0.5.1"
+   git push origin --tags
+
+Releasing
+'''''''''
+
+To release, you need to have your PyPI API token in ``~/.pypirc``. 
+You must be on a clean, tagged, version of the nanograv/master branch. Then you can just::
+
+   make release
+
+This will build the distribution source and wheel packages and use ``twine`` to upload to PyPI.
+
 
 .. _GitHub: https://github.com/nanograv/PINT
 .. _investigate: https://realpython.com/python-debugging-pdb/

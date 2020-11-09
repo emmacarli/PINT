@@ -10,11 +10,12 @@ from __future__ import absolute_import, division, print_function
 import astropy.units as u
 import numpy as np
 from astropy import log
-
+from astropy.time import Time
 from pint import ls
 from pint.models.parameter import MJDParameter, floatParameter, prefixParameter
 from pint.models.stand_alone_psr_binaries import binary_orbits as bo
 from pint.models.timing_model import DelayComponent, MissingParameter
+from pint.utils import taylor_horner_deriv
 
 
 class PulsarBinary(DelayComponent):
@@ -36,7 +37,7 @@ class PulsarBinary(DelayComponent):
 
     category = "pulsar_system"
 
-    def __init__(self,):
+    def __init__(self):
         super(PulsarBinary, self).__init__()
         self.binary_model_name = None
         self.barycentric_time = None
@@ -195,23 +196,25 @@ class PulsarBinary(DelayComponent):
                 continue
             bparObj.value = bparObj.value * u.Unit(bparObj.units)
 
-    def update_binary_object(self, toas, acc_delay=None):
+    def update_binary_object(self, toas=None, acc_delay=None):
         """Update binary object instance for this set of parameters/toas."""
         # Don't need to fill P0 and P1. Translate all the others to the format
         # that is used in bmodel.py
         # Get barycnetric toa first
         updates = {}
-        tbl = toas.table
-        if acc_delay is None:
-            # If the accumulate delay is not provided, it will try to get
-            # the barycentric correction.
-            acc_delay = self.delay(toas, self.__class__.__name__, False)
-        self.barycentric_time = tbl["tdbld"] * u.day - acc_delay
-        updates["barycentric_toa"] = self.barycentric_time
-        updates["obs_pos"] = tbl["ssb_obs_pos"].quantity
-        updates["psr_pos"] = self.ssb_to_psb_xyz_ICRS(
-            epoch=tbl["tdbld"].astype(np.float64)
-        )
+        if toas is not None:
+            tbl = toas.table
+            if acc_delay is None:
+                # If the accumulated delay is not provided, calculate and
+                # use the barycentered TOAS
+                self.barycentric_time = self.get_barycentric_toas(toas)
+            else:
+                self.barycentric_time = tbl["tdbld"] * u.day - acc_delay
+            updates["barycentric_toa"] = self.barycentric_time
+            updates["obs_pos"] = tbl["ssb_obs_pos"].quantity
+            updates["psr_pos"] = self.ssb_to_psb_xyz_ICRS(
+                epoch=tbl["tdbld"].astype(np.float64)
+            )
         for par in self.binary_instance.binary_params:
             binary_par_names = [par]
             if par in self.binary_instance.param_aliases.keys():
@@ -252,7 +255,7 @@ class PulsarBinary(DelayComponent):
         self.update_binary_object(toas, acc_delay)
         return self.binary_instance.d_binarydelay_d_par(param)
 
-    def print_par(self,):
+    def print_par(self):
         result = "BINARY {0}\n".format(self.binary_model_name)
         for p in self.params:
             par = getattr(self, p)
@@ -265,3 +268,83 @@ class PulsarBinary(DelayComponent):
 
     def FBX_description(self, n):
         return "%dth time derivative of frequency of orbit" % n
+
+    def change_binary_epoch(self, new_epoch):
+        """Change the epoch for this binary model.
+
+        T0 will be changed to the periapsis time closest to the supplied epoch,
+        and the argument of periapsis (OM), eccentricity (ECC), and projected
+        semimajor axis (A1 or X) will be updated according to the specified
+        OMDOT, EDOT, and A1DOT or XDOT, if present.
+
+        Note that derivatives of binary orbital frequency higher than the first
+        (FB2, FB3, etc.) are ignored in computing the new T0, even if present in
+        the model. If high-precision results are necessary, especially for models
+        containing higher derivatives of orbital frequency, consider re-fitting
+        the model to a set of TOAs.
+
+        Parameters
+        ----------
+        new_epoch: float MJD (in TDB) or `astropy.Time` object
+            The new epoch value.
+        """
+        if isinstance(new_epoch, Time):
+            new_epoch = Time(new_epoch, scale="tdb", precision=9)
+        else:
+            new_epoch = Time(new_epoch, scale="tdb", format="mjd", precision=9)
+
+        try:
+            FB2 = self.FB2.quantity
+            log.warning(
+                "Ignoring orbital frequency derivatives higher than FB1"
+                "in computing new T0"
+            )
+        except AttributeError:
+            pass
+
+        # Get PB and PBDOT from model
+        if self.PB.quantity is not None:
+            PB = self.PB.quantity
+            if self.PBDOT.quantity is not None:
+                PBDOT = self.PBDOT.quantity
+            else:
+                PBDOT = 0.0 * u.Unit("")
+        else:
+            PB = 1.0 / self.FB0.quantity
+            try:
+                PBDOT = -self.FB1.quantity / self.FB0.quantity ** 2
+            except AttributeError:
+                PBDOT = 0.0 * u.Unit("")
+
+        # Find closest periapsis time and reassign T0
+        t0_ld = self.T0.quantity.tdb.mjd_long
+        dt = (new_epoch.tdb.mjd_long - t0_ld) * u.day
+        d_orbits = dt / PB - PBDOT * dt ** 2 / (2.0 * PB ** 2)
+        n_orbits = np.round(d_orbits.to(u.Unit("")))
+        dt_integer_orbits = PB * n_orbits + PB * PBDOT * n_orbits ** 2 / 2.0
+        self.T0.quantity = self.T0.quantity + dt_integer_orbits
+
+        # Update PB or FB0, FB1, etc.
+        if isinstance(self.binary_instance.orbits_cls, bo.OrbitPB):
+            dPB = PBDOT * dt_integer_orbits
+            self.PB.quantity = self.PB.quantity + dPB
+        else:
+            fbterms = [
+                getattr(self, k).quantity
+                for k in self.get_prefix_mapping("FB").values()
+            ]
+            fbterms = [0.0 * u.Unit("")] + fbterms
+
+            for n in range(len(fbterms) - 1):
+                cur_deriv = getattr(self, "FB{}".format(n))
+                cur_deriv.value = taylor_horner_deriv(
+                    dt.to(u.s), fbterms, deriv_order=n + 1
+                )
+
+        # Update ECC, OM, and A1
+        dECC = self.EDOT.quantity * dt_integer_orbits
+        self.ECC.quantity = self.ECC.quantity + dECC
+        dOM = self.OMDOT.quantity * dt_integer_orbits
+        self.OM.quantity = self.OM.quantity + dOM
+        dA1 = self.A1DOT.quantity * dt_integer_orbits
+        self.A1.quantity = self.A1.quantity + dA1

@@ -27,7 +27,6 @@ import numpy as np
 import six
 from astropy import log
 from astropy.coordinates.angles import Angle
-
 from pint import pint_units
 from pint.models import priors
 from pint.pulsar_mjd import (
@@ -323,7 +322,7 @@ class Parameter(object):
         return str(uncertainty.to(self.units).value)
 
     def __repr__(self):
-        out = "{0:16s}{1:16s}".format(self.__class__.__name__ + "(", self.name)
+        out = "{0:16s}{1:20s}".format(self.__class__.__name__ + "(", self.name)
         if self.quantity is None:
             out += "UNSET"
             return out
@@ -495,7 +494,7 @@ class floatParameter(Parameter):
             name=name,
             value=value,
             units=units,
-            frozen=True,
+            frozen=frozen,
             aliases=aliases,
             continuous=continuous,
             description=description,
@@ -513,7 +512,6 @@ class floatParameter(Parameter):
             "scale_factor",
         ]
         self.unit_scale = unit_scale
-        self._original_units = self.units
 
     @property
     def long_double(self):
@@ -546,7 +544,6 @@ class floatParameter(Parameter):
 
     @unit_scale.setter
     def unit_scale(self, val):
-        old_unit_scale = self._unit_scale
         self._unit_scale = val
         if self._unit_scale:
             if self.scale_factor is None:
@@ -559,9 +556,6 @@ class floatParameter(Parameter):
                     "The scale threshold should be given if unit_scale"
                     " is set to be True."
                 )
-        else:
-            if old_unit_scale:  # This makes sure the unit_scale if from True to false
-                self.units = self._original_units
 
     def set_quantity_float(self, val):
         """Set value method specific for float parameter
@@ -590,15 +584,15 @@ class floatParameter(Parameter):
             # This will happen if the input value did not have units
             num_value = setfunc_no_unit(val)
             if self.unit_scale:
+                # For some parameters, if the value is above a threshold, it is assumed to be in units of scale_factor
+                # e.g. "PBDOT 7.2" is interpreted as "PBDOT 7.2E-12", since the scale_factor is 1E-12 and the scale_threshold is 1E-7
                 if np.abs(num_value) > np.abs(self.scale_threshold):
                     log.info(
-                        "Parameter %s's unit will be scaled to %s %s"
-                        % (self.name, str(self.scale_factor), str(self._original_units))
+                        "Parameter %s's value will be scaled by %s"
+                        % (self.name, str(self.scale_factor))
                     )
-                    self.units = self.scale_factor * self._original_units
-                else:
-                    self.units = self._original_units
-            result = (num_value) * self.units
+                    num_value *= self.scale_factor
+            result = num_value * self.units
 
         return result
 
@@ -758,7 +752,7 @@ class MJDParameter(Parameter):
     aliases : list, optional
         An optional list of strings specifying alternate names that can also
         be accepted for this parameter.
-    time_scale : str, optional, default 'utc'
+    time_scale : str, optional, default 'tdb'
         MJD parameter time scale.
 
     Example::
@@ -777,7 +771,7 @@ class MJDParameter(Parameter):
         frozen=True,
         continuous=True,
         aliases=None,
-        time_scale="utc",
+        time_scale="tdb",
         **kwargs
     ):
         self._time_scale = time_scale
@@ -1426,7 +1420,7 @@ class maskParameter(floatParameter):
     def name_matches(self, name):
         if super(maskParameter, self).name_matches(name):
             return True
-        else:
+        elif self.index == 1:
             name_idx = name + str(self.index)
             return super(maskParameter, self).name_matches(name_idx)
 
@@ -1533,16 +1527,32 @@ class maskParameter(floatParameter):
             line += " 1"
         return line + "\n"
 
-    def new_param(self, index):
+    def new_param(self, index, copy_all=False):
         """Create a new but same style mask parameter
         """
-        new_mask_param = maskParameter(
-            name=self.origin_name,
-            index=index,
-            long_double=self.long_double,
-            units=self.units,
-            aliases=self.prefix_aliases,
-        )
+        if not copy_all:
+            new_mask_param = maskParameter(
+                name=self.origin_name,
+                index=index,
+                long_double=self.long_double,
+                units=self.units,
+                aliases=self.prefix_aliases,
+            )
+        else:
+            new_mask_param = maskParameter(
+                name=self.origin_name,
+                index=index,
+                key=self.key,
+                key_value=self.key_value,
+                value=self.value,
+                long_double=self.long_double,
+                units=self.units,
+                description=self.description,
+                uncertainty=self.uncertainty,
+                frozen=self.frozen,
+                continuous=self.continuous,
+                aliases=self.prefix_aliases,
+            )
         return new_mask_param
 
     def select_toa_mask(self, toas):
@@ -1573,7 +1583,9 @@ class maskParameter(floatParameter):
         # We need to consider some more complicated situation
         key = self.key.replace("-", "")
         tbl = toas.table
-        if key.lower() not in column_match.keys():  # This only works for the one with flags.
+        if (
+            key.lower() not in column_match.keys()
+        ):  # This only works for the one with flags.
             section_name = key + "_section"
             # if section_name not in tbl.keys():
             # if statement removed so that flags recompute every time. If don't
@@ -1697,7 +1709,7 @@ class pairParameter(floatParameter):
             return ""
         line = "%-15s " % (self.name)
         line += "%25s" % self.print_quantity(quantity[0])
-        line += "%25s" % self.print_quantity(quantity[1])
+        line += " %25s" % self.print_quantity(quantity[1])
 
         return line + "\n"
 

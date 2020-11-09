@@ -279,7 +279,6 @@ class emcee_fitter(Fitter):
         """
         phss = self.model.phase(self.toas)[1]
         # ensure all postive
-        phss = phss.to(u.cycle).value
         return np.where(phss < 0.0, phss + 1.0, phss)
 
     def lnprior(self, theta):
@@ -382,7 +381,7 @@ class emcee_fitter(Fitter):
                     hval = hm(phss[good])
             htests.append(hval)
             if ii > 0 and ii % 2 == 0 and ii < 20:
-                r, c = ((ii - 2) / 2) / 3, ((ii - 2) / 2) % 3
+                r, c = ((ii - 2) // 2) // 3, ((ii - 2) // 2) % 3
                 ax[r][c].hist(
                     phss[good],
                     nbins,

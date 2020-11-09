@@ -1,22 +1,24 @@
 """PINT Is Not TEMPO3!"""
 
+import numpy as np
+import astropy
 import astropy.constants as c
 import astropy.time as time
 import astropy.units as u
-import numpy as np
-import pint.pulsar_mjd
+from astropy import log
 from astropy.units import si
 from pint.extern._version import get_versions
 from pint.pulsar_ecliptic import PulsarEcliptic
 from pint.pulsar_mjd import PulsarMJD
+import pint.pulsar_mjd
 
 __all__ = [
     "__version__",
     "ls",
     "dmu",
     "light_second_equivalency",
-    "dimensionless_cycles",
     "hourangle_second",
+    "pulsar_mjd",
     "GMsun",
     "Tsun",
     "Tmercury",
@@ -47,7 +49,6 @@ dmu = u.def_unit("dmu", u.pc * u.cm ** -3)
 
 # define equivalency for astropy units
 light_second_equivalency = [(ls, si.second, lambda x: x, lambda x: x)]
-dimensionless_cycles = [(u.cycle, None)]
 # hourangle_second unit
 hourangle_second = u.def_unit("hourangle_second", u.hourangle / np.longdouble(3600.0))
 
@@ -81,6 +82,15 @@ pint_units = {
     "Tsun": Tsun,
     "GMsun": GMsun,
     "MJD": u.day,
-    "pulse phase": u.cycle,
+    "pulse phase": u.dimensionless_unscaled,
     "hourangle_second": hourangle_second,
 }
+
+import astropy.version
+
+if astropy.version.major < 4:
+    log.warning(
+        "Using astropy version {}. To get most recent IERS data, upgrade to astropy >= 4.0".format(
+            astropy.__version__
+        )
+    )

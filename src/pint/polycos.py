@@ -511,7 +511,7 @@ class Polycos(object):
         Generate the polyco data.
 
         Parameters
-        ---------
+        ----------
         model : TimingModel
             TimingModel to generate the Polycos with parameters
             setup.
@@ -526,18 +526,18 @@ class Polycos(object):
             Observatory code
 
         segLength : float
-            Length of polyco segement [unit: minutes]
+            Length of polyco segement [minutes]
 
         ncoeff : int
-            number of coefficents
+            Number of coefficents
 
         obsFreq : float
-            observing frequency [unit: MHz]
+            Observing frequency [MHz]
 
         maxha : float optional. Default 12.0
             Maximum hour angle
 
-        method : string optional ['TEMPO','TEMPO2',...] Default TEMPO
+        method : string optional ["TEMPO", "TEMPO2", ...] Default TEMPO
             Method to generate polycos. Only the TEMPO method is supported for now.
 
         numNodes : int optional. Default 20
@@ -615,9 +615,7 @@ class Polycos(object):
                 dt = (nodes * u.day - tmid).to("min")  # Use constant
                 rdcPhase = ph - refPhase
                 rdcPhase = (
-                    rdcPhase.int
-                    - (dt.value * model.F0.value * 60.0) * u.cycle
-                    + rdcPhase.frac
+                    rdcPhase.int - (dt.value * model.F0.value * 60.0) + rdcPhase.frac
                 )
                 dtd = dt.value.astype(float)  # Truncate to double
                 rdcPhased = rdcPhase.astype(float)
@@ -791,8 +789,8 @@ class Polycos(object):
             phaseInt += (absp.int,)
             phaseFrac += (absp.frac,)
             # Maybe add sort function here, since the time has been masked.
-        phaseInt = np.hstack(phaseInt).value * u.cycle
-        phaseFrac = np.hstack(phaseFrac).value * u.cycle
+        phaseInt = np.hstack(phaseInt).value
+        phaseFrac = np.hstack(phaseFrac).value
         absPhase = Phase(phaseInt, phaseFrac)
 
         return absPhase

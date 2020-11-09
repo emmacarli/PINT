@@ -10,9 +10,10 @@ We don't really have any proper tutorials yet. But for the moment, we have a few
 .. toctree::
 
    basic-installation
-   examples/PINT_walkthrough
-   examples/MCMC_walkthrough
-   examples/Example of parameter usage
-   examples/TimingModel_composition
-   examples/Timing_model_update_example
-   examples/build_model_from_scratch
+   examples/PINT_walkthrough.ipynb
+   examples/understanding_timing_models.ipynb
+   examples/understanding_parameters.ipynb
+   examples/build_model_from_scratch.ipynb
+   examples/understanding_fitters.ipynb
+   examples/Wideband_TOA_walkthrough.ipynb
+   examples/build_model_from_scratch.ipynb

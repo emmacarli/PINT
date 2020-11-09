@@ -6,9 +6,12 @@ from __future__ import absolute_import, division, print_function
 import astropy.units as u
 import numpy
 
-from pint import dimensionless_cycles
 from pint.models.parameter import maskParameter
-from pint.models.timing_model import DelayComponent, MissingParameter, PhaseComponent
+from pint.models.timing_model import (
+    DelayComponent,
+    MissingParameter,
+    PhaseComponent,
+)
 
 
 class DelayJump(DelayComponent):
@@ -120,8 +123,7 @@ class PhaseJump(PhaseComponent):
         d_phase_d_j = numpy.zeros(len(tbl))
         mask = jpar.select_toa_mask(toas)
         d_phase_d_j[mask] = self.F0.value
-        with u.set_enabled_equivalencies(dimensionless_cycles):
-            return (d_phase_d_j * self.F0.units).to(u.cycle / u.second)
+        return (d_phase_d_j * self.F0.units).to(1 / u.second)
 
     def print_par(self):
         result = ""
@@ -129,3 +131,15 @@ class PhaseJump(PhaseComponent):
             jump_par = getattr(self, jump)
             result += jump_par.as_parfile_line()
         return result
+
+    def get_number_of_jumps(self):
+        """Returns the number of jumps contained in this PhaseJump object."""
+        return len(self.jumps)
+
+    def get_jump_param_objects(self):
+        """
+        Returns a list of the maskParameter objects representing the jumps 
+        in this PhaseJump object.
+        """
+        jump_obs = [getattr(self, jump) for jump in self.jumps]
+        return jump_obs

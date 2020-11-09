@@ -49,16 +49,28 @@ def main(argv=None):
     if m.EPHEM is not None:
         model_ephem = m.EPHEM.value
     t = pint.toa.get_TOAs(args.timfile, planets=use_planets, ephem=model_ephem)
+
+    # turns pre-existing jump flags in t.table['flags'] into parameters in parfile
+    m.jump_flags_to_params(t)
+
+    if m.TRACK.value == "-2":
+        if "pn" in t.table.colnames:
+            log.info("Already have pulse numbers from TOA flags.")
+        else:
+            log.info("Adding pulse numbers")
+            t.compute_pulse_numbers(m)
+
     prefit_resids = pint.residuals.Residuals(t, m).time_resids
 
     log.info("Fitting...")
     f = pint.fitter.WLSFitter(t, m)
     f.fit_toas()
 
-    # Print some basic params
-    print("Best fit has reduced chi^2 of", f.resids.chi2_reduced)
-    print("RMS in phase is", f.resids.phase_resids.std())
-    print("RMS in time is", f.resids.time_resids.std().to(u.us))
+    # Print fit summary
+    print(
+        "============================================================================"
+    )
+    f.print_summary()
 
     if args.plot:
         import matplotlib.pyplot as plt

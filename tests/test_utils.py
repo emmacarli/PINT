@@ -5,6 +5,7 @@ from __future__ import absolute_import, division, print_function
 from itertools import product
 from tempfile import NamedTemporaryFile
 
+import pint
 import astropy.units as u
 import numpy as np
 import pytest
@@ -33,7 +34,20 @@ from pint.pulsar_mjd import (
     time_from_mjd_string,
     time_to_longdouble,
 )
-from pint.utils import PosVel, interesting_lines, lines_of, open_or_use, taylor_horner
+from pint.utils import (
+    PosVel,
+    interesting_lines,
+    lines_of,
+    open_or_use,
+    taylor_horner,
+    dmxparse,
+    FTest,
+)
+
+import pint.models as tm
+from pint import fitter, toa
+from pinttestdata import datadir
+import os
 
 
 def test_taylor_horner_basic():
@@ -166,8 +180,8 @@ def test_posvel_respects_label_constraints():
 def posvel_arrays(draw):
     s = draw(array_shapes())
     dtype = draw(scalar_dtypes())
-    pos = draw(arrays(dtype, (3,) + s))
-    vel = draw(arrays(dtype, (3,) + s))
+    pos = draw(arrays(dtype=dtype, shape=(3,) + s))
+    vel = draw(arrays(dtype=dtype, shape=(3,) + s))
     return pos, vel
 
 
@@ -199,8 +213,8 @@ def test_posvel_different_lengths_raises():
 def posvel_arrays_broadcastable(draw):
     s, s_pos, s_vel = draw(broadcastable_subshapes(array_shapes()))
     dtype = draw(scalar_dtypes())
-    pos = draw(arrays(dtype, (3,) + tuple(s_pos)))
-    vel = draw(arrays(dtype, (3,) + tuple(s_vel)))
+    pos = draw(arrays(dtype=dtype, shape=(3,) + tuple(s_pos)))
+    vel = draw(arrays(dtype=dtype, shape=(3,) + tuple(s_vel)))
     return pos, vel, (3,) + s
 
 
@@ -276,22 +290,22 @@ def test_posvel_str_sensible():
 @composite
 def array_pair(draw, dtype1, elements1, dtype2, elements2):
     s = draw(array_shapes())
-    a = draw(arrays(dtype1, s, elements1))
-    b = draw(arrays(dtype2, s, elements2))
+    a = draw(arrays(dtype=dtype1, shape=s, elements=elements1))
+    b = draw(arrays(dtype=dtype2, shape=s, elements=elements2))
     return s, a, b
 
 
 @composite
 def array_pair_broadcast(draw, dtype1, elements1, dtype2, elements2):
     s, s_a, s_b = draw(broadcastable_subshapes(array_shapes()))
-    a = draw(arrays(dtype1, s_a, elements1))
-    b = draw(arrays(dtype2, s_b, elements2))
+    a = draw(arrays(dtype=dtype1, shape=s_a, elements=elements1))
+    b = draw(arrays(dtype=dtype2, shape=s_b, elements=elements2))
     return s, a, b
 
 
 @composite
 def mjd_strs(draw):
-    i = draw(integers(40000, 70000))
+    i = draw(integers(min_value=40000, max_value=60000))
     f = draw(floats(0, 1, allow_nan=False))
     return mjds_to_str(i, f)
 
@@ -299,10 +313,16 @@ def mjd_strs(draw):
 @given(
     one_of(
         array_pair(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -318,10 +338,16 @@ def test_mjds_to_str_array(sif):
 @given(
     one_of(
         array_pair(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -334,10 +360,16 @@ def test_mjds_to_str_array_roundtrip_doesnt_crash(sif):
 @given(
     one_of(
         array_pair(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -400,10 +432,16 @@ def test_str_to_mjds_array(s):
 @given(
     one_of(
         array_pair(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -418,10 +456,16 @@ def test_mjds_to_jds_array(sif):
 @given(
     one_of(
         array_pair(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(40000, 70000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=40000, max_value=60000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -436,10 +480,16 @@ def test_mjds_to_jds_pulsar_array(sif):
 @given(
     one_of(
         array_pair(
-            np.int, integers(2440000, 2470000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=2440000, max_value=2460000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(2440000, 2470000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=2440000, max_value=2460000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -456,10 +506,16 @@ def test_jds_to_mjds_array(s12):
 @given(
     one_of(
         array_pair(
-            np.int, integers(2440000, 2470000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=2440000, max_value=2460000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
         array_pair_broadcast(
-            np.int, integers(2440000, 2470000), np.float, floats(0, 1, allow_nan=False)
+            np.int,
+            integers(min_value=2440000, max_value=2460000),
+            np.float,
+            floats(0, 1, allow_nan=False),
         ),
     )
 )
@@ -564,3 +620,98 @@ def test_mjd_string_rejects_val2(format_):
 def test_time_from_mjd_string_rejects_other_formats():
     with pytest.raises(ValueError):
         time_from_mjd_string("58000", format="cxcsec")
+
+
+def test_dmxparse():
+    """Test for dmxparse function."""
+    m = tm.get_model(os.path.join(datadir, "B1855+09_NANOGrav_9yv1.gls.par"))
+    t = toa.get_TOAs(os.path.join(datadir, "B1855+09_NANOGrav_9yv1.tim"))
+    f = fitter.GLSFitter(toas=t, model=m)
+    f.fit_toas()
+    dmx = dmxparse(f, save=False)
+    # Check exception handling
+    m = tm.get_model(os.path.join(datadir, "B1855+09_NANOGrav_dfg+12_DMX.par"))
+    t = toa.get_TOAs(os.path.join(datadir, "B1855+09_NANOGrav_dfg+12.tim"))
+    f = fitter.WLSFitter(toas=t, model=m)
+    f.fit_toas()
+    dmx = dmxparse(f, save=False)
+
+
+def test_pmtot():
+    """Test pmtot calculation"""
+    from pint.utils import pmtot
+
+    # This is ecliptic
+    m = tm.get_model(os.path.join(datadir, "B1855+09_NANOGrav_9yv1.gls.par"))
+    # Replace with units when we are at numpy 1.17+
+    assert np.isclose(pmtot(m).value, 6.056830627)
+    # This is euqatorial
+    m2 = tm.get_model(os.path.join(datadir, "PSR_J0218+4232.par"))
+    # Replace with units when we are at numpy 1.17+
+    assert np.isclose(pmtot(m2).value, 6.323257250021364)
+    m2.remove_component("AstrometryEquatorial")
+    with pytest.raises(AttributeError):
+        pmtot(m2)
+
+
+# Remove this xfail once our minimum numpy can bump up to 1.17, but this requires excluding Python 2
+@pytest.mark.xfail(
+    reason="numpy 1.16.* does not support isclose with units, fixed in 1.17"
+)
+def test_psr_utils():
+
+    from pint.utils import (
+        mass_funct,
+        mass_funct2,
+        pulsar_mass,
+        companion_mass,
+        pulsar_age,
+        pulsar_edot,
+        pulsar_B,
+        pulsar_B_lightcyl,
+    )
+
+    pb = 1.0 * u.d
+    x = 2.0 * pint.ls
+
+    # Mass function
+    assert np.isclose(mass_funct(pb, x), 0.008589595519643776 * u.solMass)
+
+    # Mass function, second form
+    assert np.isclose(
+        mass_funct2(1.4 * u.solMass, 0.2 * u.solMass, 60.0 * u.deg),
+        0.0020297470401197783 * u.solMass,
+    )
+
+    # Characteristic age
+    assert np.isclose(
+        pulsar_age(0.033 * u.Hz, -2.0e-15 * u.Hz / u.s), 261426.72446573884 * u.yr
+    )
+
+    # Edot
+    assert np.isclose(
+        pulsar_edot(0.033 * u.Hz, -2.0e-15 * u.Hz / u.s),
+        2.6055755618875905e30 * u.erg / u.s,
+    )
+
+    # B
+    assert np.isclose(
+        pulsar_B(0.033 * u.Hz, -2.0e-15 * u.Hz / u.s), 238722891596281.66 * u.G
+    )
+
+    # B_lc
+    assert np.isclose(
+        pulsar_B_lightcyl(0.033 * u.Hz, -2.0e-15 * u.Hz / u.s),
+        0.07774704753236616 * u.G,
+    )
+
+
+def test_ftest():
+    """Test for FTest. Numbers from example test."""
+    chi2_1 = 5116.3297879409574835
+    dof_1 = 4961
+    chi2_2 = 5110.749818644068647
+    dof_2 = 4960
+    ft = FTest(chi2_1, dof_1, chi2_2, dof_2)
+    # Test against scipy F-CDF, hardcoded test value
+    assert np.isclose(0.020000171879625623, ft)
