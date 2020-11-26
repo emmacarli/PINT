@@ -9,6 +9,7 @@ import collections
 
 from pint.phase import Phase
 from pint.utils import weighted_mean
+from pint.models.dispersion_model import Dispersion
 
 __all__ = ["Residuals", "WidebandDMResiduals", "residual_map"]
 
@@ -22,10 +23,12 @@ class Residuals:
         Controls whether mean will be subtracted from the residuals
     use_weighted_mean : bool
         Controls whether mean compution is weighted (by errors) or not.
-    track_mode : "nearest", "use_pulse_numbers"
-        Controls how pulse numbers are assigned. The default "nearest" assigns each TOA to the nearest integer pulse.
-        "use_pulse_numbers" uses the pulse_number column of the TOAs table to assign pulse numbers. This mode is
-        selected automatically if the model has parameter TRACK == "-2".
+    track_mode : None, "nearest", "use_pulse_numbers"
+        Controls how pulse numbers are assigned. ``"nearest"`` assigns
+        each TOA to the nearest integer pulse. ``"use_pulse_numbers"`` uses the
+        ``pulse_number`` column of the TOAs table to assign pulse numbers. If the
+        default, None, is passed, use the pulse numbers if and only if the model has
+        parameter TRACK == "-2".
     """
 
     def __new__(
@@ -36,7 +39,7 @@ class Residuals:
         unit=u.s,
         subtract_mean=True,
         use_weighted_mean=True,
-        track_mode="nearest",
+        track_mode=None,
         scaled_by_F0=True,
     ):
         if cls is Residuals:
@@ -60,7 +63,7 @@ class Residuals:
         unit=u.s,
         subtract_mean=True,
         use_weighted_mean=True,
-        track_mode="nearest",
+        track_mode=None,
         scaled_by_F0=True,
     ):
         self.toas = toas
@@ -68,9 +71,13 @@ class Residuals:
         self.residual_type = residual_type
         self.subtract_mean = subtract_mean
         self.use_weighted_mean = use_weighted_mean
-        self.track_mode = track_mode
-        if getattr(self.model, "TRACK").value == "-2":
-            self.track_mode = "use_pulse_numbers"
+        if track_mode is None:
+            if getattr(self.model, "TRACK").value == "-2":
+                self.track_mode = "use_pulse_numbers"
+            else:
+                self.track_mode = "nearest"
+        else:
+            self.track_mode = track_mode
         if toas is not None and model is not None:
             self.phase_resids = self.calc_phase_resids()
             self.time_resids = self.calc_time_resids()
@@ -97,10 +104,6 @@ class Residuals:
             return self.phase_resids
 
     @property
-    def data_error(self):
-        return self.toas.get_errors()
-
-    @property
     def chi2_reduced(self):
         return self.chi2 / self.dof
 
@@ -114,20 +117,34 @@ class Residuals:
 
     @property
     def resids_value(self):
-        """ Get pure value of the residuals use the given base unit.
-        """
+        """Get pure value of the residuals use the given base unit."""
         if not self.scaled_by_F0:
             return self.resids.to_value(self.unit / u.s)
         else:
             return self.resids.to_value(self.unit)
 
+    def get_data_error(self, scaled=True):
+        """Get data errors.
+        Parameter
+        ---------
+        scaled: bool, optional
+            If errors get scaled by the noise model.
+        """
+        if not scaled:
+            return self.toas.get_errors()
+        else:
+            return self.model.scaled_toa_uncertainty(self.toas)
+
     def rms_weighted(self):
         """Compute weighted RMS of the residals in time."""
-        if np.any(self.toas.get_errors() == 0):
+        # Use scaled errors, if the noise model is not presented, it will
+        # return the raw errors
+        scaled_errors = self.get_data_error()
+        if np.any(scaled_errors.value == 0):
             raise ValueError(
                 "Some TOA errors are zero - cannot calculate weighted RMS of residuals"
             )
-        w = 1.0 / (self.toas.get_errors().to(u.s) ** 2)
+        w = 1.0 / (scaled_errors.to(u.s) ** 2)
 
         wmean, werr, wsdev = weighted_mean(self.time_resids, w, sdev=True)
         return wsdev.to(u.us)
@@ -140,7 +157,7 @@ class Residuals:
         # Check for the column, and if not there then create it as zeros
         try:
             delta_pulse_numbers = Phase(self.toas.table["delta_pulse_number"])
-        except:
+        except IndexError:
             self.toas.table["delta_pulse_number"] = np.zeros(len(self.toas.get_mjds()))
             delta_pulse_numbers = Phase(self.toas.table["delta_pulse_number"])
 
@@ -163,7 +180,7 @@ class Residuals:
             # This converts from a Phase object to a np.float128
             full = residualphase.int + residualphase.frac
         # If not tracking then do the usual nearest pulse number calculation
-        else:
+        elif self.track_mode == "nearest":
             # Compute model phase
             modelphase = self.model.phase(self.toas) + delta_pulse_numbers
             # Here it subtracts the first phase, so making the first TOA be the
@@ -176,6 +193,8 @@ class Residuals:
             residualphase = Phase(np.zeros_like(modelphase.frac), modelphase.frac)
             # This converts from a Phase object to a np.float128
             full = residualphase.int + residualphase.frac
+        else:
+            raise ValueError("Invalid track_mode '{}'".format(self.track_mode))
         # If we are using pulse numbers, do we really want to subtract any kind of mean?
         if not self.subtract_mean:
             return full
@@ -257,7 +276,8 @@ class Residuals:
                 return np.inf
         else:
             # Residual units are in seconds. Error units are in microseconds.
-            if (self.toas.get_errors() == 0.0).any():
+            toa_errors = self.get_data_error()
+            if (toa_errors == 0.0).any():
                 return np.inf
             else:
                 # The self.time_resids is in the unit of "s", the error "us".
@@ -271,15 +291,9 @@ class Residuals:
                 # error units.
                 # insure only a pure number returned
                 try:
-                    return (
-                        ((self.time_resids / self.toas.get_errors().to(u.s)) ** 2.0)
-                        .sum()
-                        .value
-                    )
+                    return ((self.time_resids / toa_errors.to(u.s)) ** 2.0).sum().value
                 except:
-                    return (
-                        (self.time_resids / self.toas.get_errors().to(u.s)) ** 2.0
-                    ).sum()
+                    return ((self.time_resids / toa_errors.to(u.s)) ** 2.0).sum()
 
     def get_dof(self):
         """Return number of degrees of freedom for the model."""
@@ -380,8 +394,7 @@ class Residuals:
 
 
 class WidebandDMResiduals(Residuals):
-    """ Residuals for independent DM measurement (i.e. Wideband TOAs).
-    """
+    """Residuals for independent DM measurement (i.e. Wideband TOAs)."""
 
     def __init__(
         self,
@@ -401,7 +414,7 @@ class WidebandDMResiduals(Residuals):
         self.subtract_mean = subtract_mean
         self.use_weighted_mean = use_weighted_mean
         self.base_unit = u.pc / u.cm ** 3
-        self.get_model_value = self.model.dm_value
+        self.get_model_value = self.model.total_dm
         self.dm_data, self.dm_error = self.get_dm_data()
         self.scaled_by_F0 = scaled_by_F0
         self._chi2 = None
@@ -412,13 +425,8 @@ class WidebandDMResiduals(Residuals):
 
     @property
     def resids_value(self):
-        """ Get pure value of the residuals use the given base unit.
-        """
+        """Get pure value of the residuals use the given base unit."""
         return self.resids.to_value(self.unit)
-
-    @property
-    def data_error(self):
-        return self.dm_error
 
     @property
     def chi2(self):
@@ -427,6 +435,18 @@ class WidebandDMResiduals(Residuals):
             self._chi2 = self.calc_chi2()
         assert self._chi2 is not None
         return self._chi2
+
+    def get_data_error(self, scaled=True):
+        """Get data errors.
+        Parameter
+        ---------
+        scaled: bool, optional
+            If errors get scaled by the noise model.
+        """
+        if not scaled:
+            return self.dm_error
+        else:
+            return self.model.scaled_dm_uncertainty(self.toas)
 
     def calc_resids(self):
         model_value = self.get_model_value(self.toas)
@@ -448,21 +468,23 @@ class WidebandDMResiduals(Residuals):
         return resids
 
     def calc_chi2(self):
-        if (self.data_error.value == 0.0).any():
+        data_errors = self.get_data_error()
+        if (data_errors == 0.0).any():
             return np.inf
         else:
             try:
-                return ((self.resids / self.data_error) ** 2.0).sum().decompose().value
+                return ((self.resids / data_errors) ** 2.0).sum().decompose().value
             except:
-                return ((self.resids / self.data_error) ** 2.0).sum().decompose()
+                return ((self.resids / data_errors) ** 2.0).sum().decompose()
 
     def rms_weighted(self):
         """Compute weighted RMS of the residals in time."""
-        if np.any(self.data_error.value == 0):
+        scaled_errors = self.get_data_error()
+        if np.any(scaled_errors.value == 0):
             raise ValueError(
-                "Some TOA errors are zero - cannot calculate weighted RMS of residuals"
+                "Some DM errors are zero - cannot calculate weighted RMS of residuals"
             )
-        w = 1.0 / (self.data_error ** 2)
+        w = 1.0 / (scaled_errors ** 2)
 
         wmean, werr, wsdev = weighted_mean(self.resids, w, sdev=True)
         return wsdev
@@ -496,7 +518,7 @@ class WidebandDMResiduals(Residuals):
         return valid_dm * self.unit, valid_error * self.unit
 
     def update_model(self, new_model, **kwargs):
-        """ Up date DM models from a new PINT timing model
+        """Up date DM models from a new PINT timing model
 
         Parameters
         ----------
@@ -506,12 +528,23 @@ class WidebandDMResiduals(Residuals):
         self.model = new_model
         self.model_func = self.model.dm_value
 
+    def get_dof(self):
+        """Return number of degrees of freedom for the DM model."""
+        dof = len(self.dm_data)
+        # only get dm type of model component
+        # TODO provide a function in the timing model to get one type of component
+        for cp in self.model.components.values():
+            if "Dispersion" in cp.__class__.__bases__:
+                dof -= cp.free_params_component
+        dof -= 1
+        return dof
+
 
 residual_map = {"toa": Residuals, "dm": WidebandDMResiduals}
 
 
 class CombinedResiduals(object):
-    """ A class provides uniformed API that collects result from different type
+    """A class provides uniformed API that collects result from different type
     of residuals.
 
     Parameters
@@ -526,47 +559,63 @@ class CombinedResiduals(object):
     """
 
     def __init__(self, residuals):
-        self.residual_objs = residuals
+        self.residual_objs = collections.OrderedDict()
+        for res in residuals:
+            self.residual_objs[res.residual_type] = res
 
     @property
-    def resids(self):
-        """ Residuals from all of the residual types.
-        """
+    def _combined_resids(self):
+        """Residuals from all of the residual types."""
         all_resids = []
-        for res in self.residual_objs:
+        for res in self.residual_objs.values():
             all_resids.append(res.resids_value)
         return np.hstack(all_resids)
 
     @property
+    def _combined_data_error(self):
+        # Since it is the combinde residual, the units are removed.
+        dr = self.data_error
+        return np.hstack([rv.value for rv in dr.values()])
+
+    @property
     def unit(self):
-        return [res.unit for res in self.residual_objs]
+        units = {}
+        for k, v in self.residual_objs.items():
+            units[k] = v.unit
+        return units
 
     @property
     def chi2(self):
         chi2 = 0
-        for res in self.residual_objs:
+        for res in self.residual_objs.values():
             chi2 += res.chi2
         return chi2
 
     @property
     def data_error(self):
-        # Since it is the combinde residual, the units are removed.
-        dr = self.get_data_error()
-        return np.hstack([rv.value for rv in dr.values()])
-
-    def get_data_error(self):
         errors = []
-        for rs in self.residual_objs:
-            errors.append((rs.residual_type, rs.data_error))
+        for rs in self.residual_objs.values():
+            errors.append((rs.residual_type, rs.get_data_error()))
         return collections.OrderedDict(errors)
 
     def rms_weighted(self):
         """Compute weighted RMS of the residals in time."""
-        if np.any(self.data_error == 0):
+
+        if np.any(self._combined_data_error == 0):
             raise ValueError(
                 "Some data errors are zero - cannot calculate weighted RMS of residuals"
             )
-        w = 1.0 / (self.data_error ** 2)
+        wrms = {}
+        for rs in self.residual_objs.values():
+            w = 1.0 / (rs.get_data_error() ** 2)
+            wmean, werr, wsdev = weighted_mean(rs.resids, w, sdev=True)
+            wrms[rs.residual_type] = wsdev
+        return wrms
 
-        wmean, werr, wsdev = weighted_mean(self.resids, w, sdev=True)
-        return wsdev
+    def get_dof(self):
+        dof = len(self.resids)
+        # It assumes that the input model are the same model, and time residual has
+        # offset in the fitting
+        # TODO In a more general case, this assumption would not be valid.
+        dof -= len(self.residual_objs["toa"].free_params) - 1
+        return dof
